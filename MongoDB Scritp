@@ -1,0 +1,163 @@
+# Install Python and pymongo:
+pip install pymongo
+
+# Set Up Collections and Insert Data:
+from pymongo import MongoClient
+
+# Connect to MongoDB
+client = MongoClient("mongodb://localhost:27017/")
+db = client["ecommerce"]
+
+# Customers Collection
+customers = db["customers"]
+customers.insert_many([
+    {"customer_id": 1, "name": "Alice Smith", "email": "alice@example.com", "address": {"street": "123 Maple St", "city": "Springfield", "state": "IL"}},
+    {"customer_id": 2, "name": "Bob Jones", "email": "bob@example.com", "address": {"street": "456 Oak St", "city": "Metropolis", "state": "NY"}},
+    {"customer_id": 3, "name": "Charlie Brown", "email": "charlie@example.com", "address": {"street": "789 Pine St", "city": "Gotham", "state": "NJ"}}
+])
+
+# Products Collection
+products = db["products"]
+products.insert_many([
+    {"product_id": 101, "product_name": "Laptop", "category": "Electronics", "price": 1200, "stock_quantity": 50},
+    {"product_id": 102, "product_name": "Phone", "category": "Electronics", "price": 800, "stock_quantity": 30}
+])
+
+# Orders Collection
+orders = db["orders"]
+orders.insert_many([
+    {"order_id": 5001, "customer_id": 1, "order_date": "2024-01-15T10:00:00Z", "status": "Delivered"},
+    {"order_id": 5002, "customer_id": 2, "order_date": "2024-01-16T11:00:00Z", "status": "Shipped"}
+])
+
+# Order Items Collection
+order_items = db["order_items"]
+order_items.insert_many([
+    {"order_item_id": 9001, "order_id": 5001, "product_id": 101, "quantity": 2, "price": 1200},
+    {"order_item_id": 9002, "order_id": 5002, "product_id": 102, "quantity": 1, "price": 800}
+])
+
+# Analytical Queries
+# Which Product Categories Generate the Highest Revenue?
+pipeline = [
+    {"$lookup": {
+        "from": "order_items",
+        "localField": "product_id",
+        "foreignField": "product_id",
+        "as": "product_orders"
+    }},
+    {"$unwind": "$product_orders"},
+    {"$group": {
+        "_id": "$category",
+        "total_revenue": {"$sum": {"$multiply": ["$product_orders.quantity", "$product_orders.price"]}}
+    }},
+    {"$sort": {"total_revenue": -1}}
+]
+result = list(db.products.aggregate(pipeline))
+print(result)
+What is the Average Delivery Time for Orders? Assuming orders have a delivery_date field:
+pipeline = [
+    {"$addFields": {
+        "delivery_time": {"$subtract": ["$delivery_date", "$order_date"]}
+    }},
+    {"$group": {
+        "_id": None,
+        "average_delivery_time": {"$avg": "$delivery_time"}
+    }}
+]
+result = list(db.orders.aggregate(pipeline))
+print(result)
+
+# Top 3 Most Expensive Products Sold in Each Order:
+pipeline = [
+    {"$lookup": {
+        "from": "order_items",
+        "localField": "order_id",
+        "foreignField": "order_id",
+        "as": "order_details"
+    }},
+    {"$unwind": "$order_details"},
+    {"$sort": {"order_details.price": -1}},
+    {"$group": {
+        "_id": "$order_id",
+        "top_products": {"$push": "$order_details.product_id"}
+    }},
+    {"$project": {
+        "top_3_products": {"$slice": ["$top_products", 3]}
+    }}
+]
+result = list(db.orders.aggregate(pipeline))
+print(result)
+
+# Schema Design and Optimization
+Indexing Frequently Queried Fields:
+db.orders.create_index([("customer_id", 1)])
+db.order_items.create_index([("product_id", 1)])
+
+# Transactions:
+python
+Copy code
+with client.start_session() as session:
+    with session.start_transaction():
+        db.orders.insert_one(
+            {"order_id": 5003, "customer_id": 3, "order_date": "2024-01-17T12:00:00Z", "status": "Pending"},
+            session=session
+        )
+        db.products.update_one(
+            {"product_id": 101},
+            {"$inc": {"stock_quantity": -1}},
+            session=session
+        )
+
+Change Streams:
+with db.orders.watch() as stream:
+    for change in stream:
+        print(change)
+
+# Schema Validation:
+db.command({
+    "collMod": "products",
+    "validator": {
+        "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["product_id", "price"],
+            "properties": {
+                "price": {"bsonType": "number", "minimum": 0}
+            }
+        }
+    }
+})
+
+
+
+# Analytical Findings
+Revenue Analysis:
+Total Revenue: $200,000 (example value).
+Highest Revenue Category: Electronics.
+# Query to find highest revenue category
+pipeline = [
+    {"$lookup": { ... }},
+    {"$unwind": "$product_orders"},
+    {"$group": { ... }},
+    {"$sort": {"total_revenue": -1}}
+]
+# Customer Insights:
+Top Customer by Spending: Alice Smith.
+Inactive Customers: Bob Jones (no orders).
+
+# Query to find inactive customers
+db.customers.aggregate([
+    {"$lookup": { ... }},
+    {"$match": {"orders": {"$size": 0}}}
+])
+
+-- Product Trends:
+op-Selling Product: Laptop.
+Out-of-Stock Products: None.
+
+# Advanced Concepts
+#Transactions: Simulated atomic updates to orders and product inventory.
+with client.start_session() as session:
+    with session.start_transaction():
+        db.orders.insert_one({ ... }, session=session)
+        db.products.update_one({ ... }, session=session)
